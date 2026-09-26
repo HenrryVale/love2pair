@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#070910">
+  <title>Love2Pair · Dual Phone 3D</title>
+  <style>
+    :root{
+      color-scheme:dark;
+      --bg:#070910;--panel:#101521;--panel2:#171d2a;--text:#f6f7fb;--muted:#aab2c4;
+      --line:#2a3346;--accent:#7c8cff;--ok:#55d68b;--warn:#ffcf66;--danger:#ff6f82
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    body{overscroll-behavior:none}
+    button,input{font:inherit}
+    button{min-height:48px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);
+      color:var(--text);padding:0 16px;font-weight:750;touch-action:manipulation}
+    button.primary{background:var(--accent);border-color:var(--accent);color:white}
+    button:disabled{opacity:.45}
+    input{width:100%;min-height:50px;border-radius:14px;border:1px solid var(--line);background:#0b0f17;
+      color:var(--text);padding:0 14px;font-size:18px;text-transform:uppercase;letter-spacing:.08em}
+    .app{max-width:760px;margin:0 auto;padding:14px 14px 28px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+    .brand{font-weight:900;letter-spacing:-.025em}
+    .badge{font-size:12px;padding:7px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
+    .badge.ok{color:var(--ok);border-color:#2d7650}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
+    h1{font-size:23px;line-height:1.15;margin:0 0 8px}
+    p{margin:0 0 16px;color:var(--muted);line-height:1.45}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .join{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:10px}
+    .roomBox{display:none;margin-top:14px;padding:14px;border:1px dashed var(--line);border-radius:14px;background:#0b0f17}
+    .roomBox.show{display:block}
+    .roomCode{font-size:30px;font-weight:900;letter-spacing:.16em;margin:5px 0 10px}
+    .small{font-size:13px;line-height:1.45;color:var(--muted)}
+    .game{display:none}
+    .game.show{display:block}
+    .hud{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:10px}
+    .role{font-size:13px;color:var(--muted)}
+    .roomline{font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sync{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+    .dot{width:9px;height:9px;border-radius:50%;background:var(--warn)}
+    .dot.ok{background:var(--ok)}
+    .stage{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:18px;
+      background:#02040a;aspect-ratio:9/14;touch-action:none}
+    canvas{display:block;width:100%;height:100%;touch-action:none}
+    .seam{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.26);pointer-events:none;z-index:3}
+    .stage.left .seam{right:0}.stage.right .seam{left:0}
+    .hint{position:absolute;z-index:4;left:12px;right:12px;bottom:12px;border-radius:12px;
+      padding:9px 11px;background:rgba(5,8,14,.72);backdrop-filter:blur(7px);font-size:12px;color:#dfe5f1;pointer-events:none}
+    .controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+    .error{display:none;margin-top:10px;color:#ffdce2;background:#30131a;border:1px solid #6b303b;border-radius:12px;padding:10px;font-size:13px}
+    .error.show{display:block}
+    .link{word-break:break-all;margin-top:8px}
+    @media(max-width:430px){
+      .app{padding:10px 10px 22px}.panel{padding:14px}.actions,.join{grid-template-columns:1fr}
+      .stage{aspect-ratio:9/15}
+    }
+  </style>
+</head>
+<body>
+<main class="app">
+  <div class="top">
+    <div class="brand">Love2Pair · Dual Phone 3D</div>
+    <div id="statusBadge" class="badge">Sin conexión</div>
+  </div>
+
+  <section id="setup" class="panel">
+    <h1>Una escena 3D compartida entre dos celulares</h1>
+    <p>El celular A crea la sala y el B entra con el código. Cada teléfono muestra una mitad de la misma cámara virtual y ambos pueden mover el objeto.</p>
+
+    <div class="actions">
+      <button id="createBtn" class="primary" type="button">Crear sala · Celular A</button>
+      <button id="demoBtn" type="button">Demo local</button>
+    </div>
+
+    <div class="join">
+      <input id="roomInput" maxlength="6" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" aria-label="Código de sala">
+      <button id="joinBtn" type="button">Unirse · Celular B</button>
+    </div>
+
+    <div id="roomBox" class="roomBox">
+      <div class="small">Sala creada. En el segundo celular abre esta misma web e introduce:</div>
+      <div id="roomCode" class="roomCode">------</div>
+      <button id="shareBtn" type="button">Compartir enlace de unión</button>
+      <div id="shareUrl" class="small link"></div>
+      <div class="small" style="margin-top:8px">Esperando al celular B…</div>
+    </div>
+
+    <div id="errorBox" class="error" role="alert"></div>
+  </section>
+
+  <section id="game" class="game">
+    <div class="hud">
+      <div>
+        <div id="roleLabel" class="role">Celular —</div>
+        <div id="gameRoom" class="roomline">Sala —</div>
+      </div>
+      <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Preparando</span></div>
+    </div>
+
+    <div id="stage" class="stage">
+      <div class="seam"></div>
+      <div class="hint">Toca o arrastra para mover la esfera. Si cruza el borde central, continúa en el otro celular.</div>
+    </div>
+
+    <div class="controls">
+      <button id="autoBtn" type="button">Animación automática</button>
+      <button id="resetBtn" type="button">Recentrar esfera</button>
+    </div>
+    <div id="gameError" class="error" role="alert"></div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+const $ = id => document.getElementById(id);
+const setup=$("setup"), game=$("game"), stage=$("stage");
+const statusBadge=$("statusBadge"), errorBox=$("errorBox"), gameError=$("gameError");
+const roomInput=$("roomInput"), roomBox=$("roomBox"), roomCodeEl=$("roomCode"), shareUrlEl=$("shareUrl");
+const roleLabel=$("roleLabel"), gameRoom=$("gameRoom"), syncDot=$("syncDot"), syncText=$("syncText");
+const autoBtn=$("autoBtn");
+
+let peer=null, conn=null, role=null, roomCode=null, demo=false;
+let renderer=null, scene=null, camera=null, ball=null, ring=null, stars=null, raycaster=null, dragPlane=null;
+let pointerDown=false, animationId=0, lastBroadcast=0, lastFrame=performance.now();
+
+const state={x:0,y:0,z:0,auto:false,phase:0,version:0};
+
+function cleanCode(v){return String(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6)}
+function makeCode(){
+  const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", nums=new Uint32Array(6);
+  crypto.getRandomValues(nums); return Array.from(nums,n=>chars[n%chars.length]).join("");
+}
+function peerId(code){return "love2pair-"+code}
+function showError(msg,inGame=false){
+  const el=inGame?gameError:errorBox; el.textContent=msg||""; el.classList.toggle("show",Boolean(msg));
+}
+function setStatus(text,ok=false){statusBadge.textContent=text;statusBadge.classList.toggle("ok",ok)}
+function setSync(text,ok=false){syncText.textContent=text;syncDot.classList.toggle("ok",ok)}
+function disposePeer(){try{conn?.close()}catch{} try{peer?.destroy()}catch{} conn=null;peer=null}
+
+function startHost(){
+  if(typeof Peer==="undefined"){showError("No se pudo cargar PeerJS. Revisa la conexión a Internet.");return}
+  disposePeer();showError("");roomCode=makeCode();role="left";
+  roomCodeEl.textContent=roomCode;roomBox.classList.add("show");setStatus("Creando sala…");
+  const u=new URL(location.href);u.searchParams.set("join",roomCode);shareUrlEl.textContent=u.toString();
+
+  peer=new Peer(peerId(roomCode),{debug:1});
+  peer.on("open",()=>setStatus("Esperando celular B"));
+  peer.on("connection",incoming=>{
+    if(conn?.open){incoming.close();return}
+    bindConnection(incoming);
+  });
+  peer.on("error",err=>{
+    if(err?.type==="unavailable-id"){startHost();return}
+    showError("No se pudo crear la sala: "+(err?.type||err?.message||"error"));
+    setStatus("Error");
+  });
+}
+
+function joinRoom(code){
+  if(typeof Peer==="undefined"){showError("No se pudo cargar PeerJS. Revisa la conexión a Internet.");return}
+  code=cleanCode(code);
+  if(code.length!==6){showError("El código debe tener 6 caracteres.");return}
+  disposePeer();showError("");roomCode=code;role="right";setStatus("Conectando…");
+
+  peer=new Peer(undefined,{debug:1});
+  peer.on("open",()=>{
+    const c=peer.connect(peerId(roomCode),{reliable:true,metadata:{role:"right"}});
+    bindConnection(c);
+  });
+  peer.on("error",err=>{
+    showError("No se pudo conectar: "+(err?.type||err?.message||"error"));
+    setStatus("Error");
+  });
+}
+
+function bindConnection(c){
+  conn=c;
+  conn.on("open",()=>{
+    setStatus("Sincronizados",true);setSync("P2P activo",true);enterGame();
+    send({type:"hello",role,width:stage.clientWidth,height:stage.clientHeight});
+    if(role==="left") broadcastState(true);
+  });
+  conn.on("data",msg=>{
+    if(!msg||typeof msg!=="object")return;
+    if(msg.type==="state"&&msg.state){
+      Object.assign(state,msg.state);updateBall();autoBtn.textContent=state.auto?"Detener animación":"Animación automática";
+    }else if(msg.type==="command"){
+      if(msg.command==="toggleAuto"){state.auto=!state.auto;state.version++;broadcastState(true)}
+      if(msg.command==="reset"){resetState(false)}
+    }
+  });
+  conn.on("close",()=>{setStatus("Celular desconectado");setSync("Desconectado");showError("La conexión P2P se cerró. Recarga para crear o unirte nuevamente.",true)});
+  conn.on("error",err=>showError("Error P2P: "+(err?.message||"conexión fallida"),true));
+}
+
+function send(payload){if(conn?.open)conn.send(payload)}
+function broadcastState(force=false){
+  const now=performance.now(); if(!force&&now-lastBroadcast<25)return;
+  lastBroadcast=now; send({type:"state",state:{...state}});
+}
+
+function enterGame(){
+  setup.style.display="none";game.classList.add("show");
+  stage.classList.toggle("left",role==="left");stage.classList.toggle("right",role==="right");
+  roleLabel.textContent=role==="left"?"Celular A · mitad izquierda":"Celular B · mitad derecha";
+  gameRoom.textContent="Sala "+roomCode;init3D();requestAnimationFrame(resize3D);
+}
+function enterDemo(){
+  demo=true;role="left";roomCode="DEMO";setStatus("Demo local",true);setSync("Local",true);
+  setup.style.display="none";game.classList.add("show");stage.classList.add("left");
+  roleLabel.textContent="Demo · mitad izquierda";gameRoom.textContent="Sin segundo celular";
+  init3D();requestAnimationFrame(resize3D);
+}
+
+function init3D(){
+  if(renderer)return;
+  scene=new THREE.Scene();scene.background=new THREE.Color(0x03050a);scene.fog=new THREE.FogExp2(0x03050a,.05);
+  camera=new THREE.PerspectiveCamera(52,1,.1,100);camera.position.set(0,1.05,8.4);camera.lookAt(0,0,0);
+  renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;
+  stage.prepend(renderer.domElement);
+
+  scene.add(new THREE.HemisphereLight(0x9ab4ff,0x141821,2.2));
+  const key=new THREE.DirectionalLight(0xffffff,2.8);key.position.set(3,5,6);scene.add(key);
+
+  const floor=new THREE.GridHelper(18,30,0x344263,0x172034);floor.position.y=-2.35;scene.add(floor);
+
+  ball=new THREE.Mesh(
+    new THREE.SphereGeometry(.62,48,32),
+    new THREE.MeshStandardMaterial({color:0x7c8cff,metalness:.22,roughness:.2})
+  );
+  scene.add(ball);
+
+  ring=new THREE.Mesh(
+    new THREE.TorusKnotGeometry(1.08,.17,110,18),
+    new THREE.MeshStandardMaterial({color:0x55d68b,metalness:.42,roughness:.26})
+  );
+  ring.position.set(0,.25,-2.7);scene.add(ring);
+
+  const boxMat=new THREE.MeshStandardMaterial({color:0xffb35a,metalness:.06,roughness:.58});
+  [[-3,-1.35,-1.5,.82],[3,-1.45,-1.8,.68],[-2.7,1.55,-3.3,.45],[2.8,1.35,-3.2,.5]].forEach(v=>{
+    const m=new THREE.Mesh(new THREE.BoxGeometry(v[3],v[3],v[3]),boxMat);
+    m.position.set(v[0],v[1],v[2]);m.rotation.set(v[0]*.1,v[1]*.2,v[2]*.12);scene.add(m);
+  });
+
+  const starGeo=new THREE.BufferGeometry(),pts=new Float32Array(900);
+  for(let i=0;i<pts.length;i+=3){pts[i]=(Math.random()-.5)*15;pts[i+1]=(Math.random()-.5)*10;pts[i+2]=-2-Math.random()*12}
+  starGeo.setAttribute("position",new THREE.BufferAttribute(pts,3));
+  stars=new THREE.Points(starGeo,new THREE.PointsMaterial({color:0x8292b6,size:.035}));scene.add(stars);
+
+  raycaster=new THREE.Raycaster();dragPlane=new THREE.Plane(new THREE.Vector3(0,0,1),0);
+
+  renderer.domElement.addEventListener("pointerdown",pointerStart);
+  renderer.domElement.addEventListener("pointermove",pointerMove);
+  renderer.domElement.addEventListener("pointerup",pointerEnd);
+  renderer.domElement.addEventListener("pointercancel",pointerEnd);
+  addEventListener("resize",resize3D,{passive:true});
+
+  updateBall();resize3D();animate();
+}
+
+function resize3D(){
+  if(!renderer||!camera)return;
+  const rect=stage.getBoundingClientRect(),w=Math.max(1,Math.round(rect.width)),h=Math.max(1,Math.round(rect.height));
+  renderer.setSize(w,h,false);
+  const fullW=w*2;camera.aspect=fullW/h;camera.updateProjectionMatrix();
+  const offsetX=role==="right"?w:0;
+  camera.setViewOffset(fullW,h,offsetX,0,w,h);
+  camera.updateProjectionMatrix();
+}
+
+function globalNdcFromPointer(ev){
+  const rect=renderer.domElement.getBoundingClientRect();
+  const localX=Math.min(rect.width,Math.max(0,ev.clientX-rect.left));
+  const localY=Math.min(rect.height,Math.max(0,ev.clientY-rect.top));
+  const globalPx=(role==="right"?rect.width:0)+localX;
+  return new THREE.Vector2((globalPx/(rect.width*2))*2-1,-(localY/rect.height)*2+1);
+}
+
+function moveFromPointer(ev){
+  if(!raycaster||!camera)return;
+  const ndc=globalNdcFromPointer(ev);raycaster.setFromCamera(ndc,camera);
+  const hit=new THREE.Vector3();
+  if(raycaster.ray.intersectPlane(dragPlane,hit)){
+    state.x=Math.max(-4.8,Math.min(4.8,hit.x));
+    state.y=Math.max(-1.7,Math.min(2.2,hit.y));
+    state.z=0;state.version++;updateBall();
+    if(!demo)broadcastState();
+  }
+}
+function pointerStart(ev){pointerDown=true;renderer.domElement.setPointerCapture?.(ev.pointerId);moveFromPointer(ev)}
+function pointerMove(ev){if(pointerDown)moveFromPointer(ev)}
+function pointerEnd(ev){pointerDown=false;try{renderer.domElement.releasePointerCapture?.(ev.pointerId)}catch{}}
+
+function updateBall(){if(ball)ball.position.set(state.x,state.y,state.z)}
+function resetState(broadcast=true){
+  state.x=0;state.y=0;state.z=0;state.auto=false;state.phase=0;state.version++;
+  updateBall();autoBtn.textContent="Animación automática";
+  if(broadcast&&!demo)broadcastState(true);
+}
+function toggleAuto(){
+  if(demo||role==="left"){
+    state.auto=!state.auto;state.version++;autoBtn.textContent=state.auto?"Detener animación":"Animación automática";
+    if(!demo)broadcastState(true);
+  }else send({type:"command",command:"toggleAuto"});
+}
+
+function animate(now=performance.now()){
+  animationId=requestAnimationFrame(animate);
+  const dt=Math.min(.05,(now-lastFrame)/1000);lastFrame=now;
+  if(role==="left"&&state.auto){
+    state.phase+=dt;
+    state.x=Math.sin(state.phase*.95)*4.25;
+    state.y=Math.sin(state.phase*1.7)*.95+.1;
+    state.version++;updateBall();
+    if(!demo)broadcastState();
+  }else if(demo&&state.auto){
+    state.phase+=dt;state.x=Math.sin(state.phase*.95)*4.25;state.y=Math.sin(state.phase*1.7)*.95+.1;updateBall();
+  }
+  if(ring){ring.rotation.x+=dt*.28;ring.rotation.y+=dt*.42}
+  if(stars)stars.rotation.y+=dt*.008;
+  renderer?.render(scene,camera);
+}
+
+$("createBtn").addEventListener("click",startHost);
+$("joinBtn").addEventListener("click",()=>joinRoom(roomInput.value));
+roomInput.addEventListener("input",()=>roomInput.value=cleanCode(roomInput.value));
+roomInput.addEventListener("keydown",e=>{if(e.key==="Enter")joinRoom(roomInput.value)});
+$("demoBtn").addEventListener("click",enterDemo);
+autoBtn.addEventListener("click",toggleAuto);
+$("resetBtn").addEventListener("click",()=>{
+  if(demo||role==="left")resetState(true); else send({type:"command",command:"reset"});
+});
+$("shareBtn").addEventListener("click",async()=>{
+  const url=shareUrlEl.textContent;
+  try{
+    if(navigator.share){await navigator.share({title:"Love2Pair",text:"Únete a mi sala 3D",url});return}
+    if(navigator.clipboard){await navigator.clipboard.writeText(url);$("shareBtn").textContent="Enlace copiado";return}
+  }catch{}
+  roomInput.value=roomCode;
+});
+
+const joinParam=cleanCode(new URL(location.href).searchParams.get("join"));
+if(joinParam){roomInput.value=joinParam;setTimeout(()=>joinRoom(joinParam),250)}
+</script>
+</body>
+</html>
