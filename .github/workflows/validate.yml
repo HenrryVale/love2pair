@@ -1,0 +1,32 @@
+name: Validate static app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check required files
+        run: |
+          test -s index.html
+          grep -q "PeerJS" README.md
+          grep -q "setViewOffset" index.html
+      - name: Validate module JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("index.html").read_text(encoding="utf-8")
+          m = re.search(r'<script type="module">(.*?)</script>', html, re.S)
+          if not m:
+              raise SystemExit("module script not found")
+          Path("/tmp/love2pair.mjs").write_text(m.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/love2pair.mjs
