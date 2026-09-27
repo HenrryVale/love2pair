@@ -55,6 +55,13 @@
     .error{display:none;margin-top:10px;color:#ffdce2;background:#30131a;border:1px solid #6b303b;border-radius:12px;padding:10px;font-size:13px}
     .error.show{display:block}
     .link{word-break:break-all;margin-top:8px}
+    .proximity{margin:14px 0;padding:14px;border:1px solid #32415f;border-radius:16px;background:#0b111d}
+    .proximityHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+    .proximityTitle{font-weight:850}
+    .proximityState{font-size:12px;color:var(--muted);margin-top:9px}
+    .meter{height:7px;background:#080c13;border-radius:999px;overflow:hidden;margin-top:9px;border:1px solid #222b3d}
+    .meterFill{height:100%;width:0;background:var(--ok);transition:width .12s linear}
+    .proxTips{margin-top:8px;font-size:12px;line-height:1.4;color:var(--muted)}
     @media(max-width:430px){
       .app{padding:10px 10px 22px}.panel{padding:14px}.actions,.join{grid-template-columns:1fr}
       .stage{aspect-ratio:9/15}
@@ -70,7 +77,21 @@
 
   <section id="setup" class="panel">
     <h1>Una escena 3D compartida entre dos celulares</h1>
-    <p>El celular A crea la sala y el B entra con el código. Cada teléfono muestra una mitad de la misma cámara virtual y ambos pueden mover el objeto.</p>
+    <p>Ahora puedes emparejar los teléfonos acercándolos. Tras conceder el micrófono una vez, Love2Pair escucha una señal de alta frecuencia y crea la conexión P2P automáticamente.</p>
+
+    <div class="proximity">
+      <div class="proximityHead">
+        <div>
+          <div class="proximityTitle">Emparejamiento por proximidad</div>
+          <div class="small">Acerca ambos celulares y mantenlos con esta página abierta.</div>
+        </div>
+        <span id="proximityIcon" aria-hidden="true">◌</span>
+      </div>
+      <button id="proximityBtn" class="primary" type="button">Activar detección automática</button>
+      <div id="proximityState" class="proximityState" aria-live="polite">Inactiva · requiere permiso de micrófono</div>
+      <div class="meter" aria-hidden="true"><div id="proximityMeter" class="meterFill"></div></div>
+      <div class="proxTips">Para la prueba: sin audífonos, volumen multimedia alrededor de 60% y los teléfonos a 5–30 cm. Algunos modelos filtran 16–18 kHz; en ese caso usa el código manual.</div>
+    </div>
 
     <div class="actions">
       <button id="createBtn" class="primary" type="button">Crear sala · Celular A</button>
@@ -116,6 +137,7 @@
 </main>
 
 <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script src="./proximity.js"></script>
 <script type="module">
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
 
@@ -125,8 +147,10 @@ const statusBadge=$("statusBadge"), errorBox=$("errorBox"), gameError=$("gameErr
 const roomInput=$("roomInput"), roomBox=$("roomBox"), roomCodeEl=$("roomCode"), shareUrlEl=$("shareUrl");
 const roleLabel=$("roleLabel"), gameRoom=$("gameRoom"), syncDot=$("syncDot"), syncText=$("syncText");
 const autoBtn=$("autoBtn");
+const proximityBtn=$("proximityBtn"), proximityState=$("proximityState"), proximityMeter=$("proximityMeter"), proximityIcon=$("proximityIcon");
 
 let peer=null, conn=null, role=null, roomCode=null, demo=false;
+let proximityPairing=false, proximityHostId=null;
 let renderer=null, scene=null, camera=null, ball=null, ring=null, stars=null, raycaster=null, dragPlane=null;
 let pointerDown=false, animationId=0, lastBroadcast=0, lastFrame=performance.now();
 
@@ -145,7 +169,146 @@ function setStatus(text,ok=false){statusBadge.textContent=text;statusBadge.class
 function setSync(text,ok=false){syncText.textContent=text;syncDot.classList.toggle("ok",ok)}
 function disposePeer(){try{conn?.close()}catch{} try{peer?.destroy()}catch{} conn=null;peer=null}
 
+async function stopProximityScan(silent=true){
+  try{await window.Love2PairProximity?.stop({silent})}catch{}
+  if(!proximityPairing){
+    proximityBtn.disabled=false;
+    proximityBtn.textContent="Activar detección automática";
+    proximityIcon.textContent="◌";
+    if(!silent) proximityState.textContent="Detección detenida";
+  }
+}
+
+function proximityBucket(){
+  // Ventana amplia para que ambos teléfonos, cuyos relojes suelen estar sincronizados,
+  // lleguen al mismo rendezvous sin intercambiar un código escrito.
+  return Math.floor(Date.now()/600000);
+}
+function proximityId(bucket=proximityBucket()){
+  return "love2pair-near-henrryvale-v1-"+bucket;
+}
+
+async function startProximityScan(){
+  showError("");
+  if(!window.Love2PairProximity?.supported){
+    showError("La detección automática necesita HTTPS, Web Audio y permiso de micrófono. Puedes seguir usando el código de sala.");
+    return;
+  }
+  disposePeer();
+  roomBox.classList.remove("show");
+  proximityPairing=false;
+  proximityBtn.disabled=true;
+  proximityBtn.textContent="Activando micrófono…";
+  proximityState.textContent="Preparando detección…";
+  proximityMeter.style.width="0%";
+  proximityIcon.textContent="◉";
+
+  try{
+    await window.Love2PairProximity.start({
+      onStatus:text=>{
+        proximityState.textContent=text;
+        if(!proximityPairing){
+          proximityBtn.disabled=false;
+          proximityBtn.textContent="Detener detección";
+        }
+      },
+      onLevel:level=>{
+        proximityMeter.style.width=Math.max(0,Math.min(100,level))+"%";
+      },
+      onSignal:()=>{
+        beginProximityPairing();
+      }
+    });
+    proximityBtn.disabled=false;
+    proximityBtn.textContent="Detener detección";
+    setStatus("Buscando celular cercano…");
+  }catch(err){
+    proximityBtn.disabled=false;
+    proximityBtn.textContent="Activar detección automática";
+    proximityIcon.textContent="◌";
+    const name=err?.name||"";
+    const msg=name==="NotAllowedError"
+      ?"No se concedió acceso al micrófono. Actívalo para Love2Pair o usa el código manual."
+      :"No se pudo iniciar proximidad: "+(err?.message||name||"error");
+    showError(msg);
+    proximityState.textContent="Detección no disponible";
+    setStatus("Sin conexión");
+  }
+}
+
+async function toggleProximityScan(){
+  if(window.Love2PairProximity?.active){
+    proximityPairing=false;
+    await stopProximityScan(false);
+    setStatus("Sin conexión");
+  }else{
+    await startProximityScan();
+  }
+}
+
+async function beginProximityPairing(){
+  if(proximityPairing)return;
+  proximityPairing=true;
+  proximityBtn.disabled=true;
+  proximityBtn.textContent="Emparejando…";
+  proximityState.textContent="Señal cercana detectada · negociando conexión…";
+  proximityIcon.textContent="↔";
+  setStatus("Emparejando por proximidad…");
+  await window.Love2PairProximity?.stop({silent:true,keepTriggered:true});
+  disposePeer();
+
+  if(typeof Peer==="undefined"){
+    proximityPairing=false;
+    showError("PeerJS no está disponible. Revisa tu conexión a Internet.");
+    return;
+  }
+
+  const hostId=proximityId();
+  proximityHostId=hostId;
+  roomCode="AUTO";
+
+  const becomeJoiner=()=>{
+    try{peer?.destroy()}catch{}
+    peer=new Peer(undefined,{debug:1});
+    peer.on("open",()=>{
+      role="right";
+      proximityState.textContent="Celular cercano encontrado · conectando…";
+      const c=peer.connect(hostId,{reliable:true,metadata:{role:"right",mode:"proximity"}});
+      bindConnection(c);
+    });
+    peer.on("error",err=>{
+      showError("No se pudo completar el emparejamiento automático: "+(err?.type||err?.message||"error")+". Puedes usar el código manual.");
+      proximityPairing=false;
+      proximityBtn.disabled=false;
+      proximityBtn.textContent="Reintentar proximidad";
+      setStatus("Error de proximidad");
+    });
+  };
+
+  peer=new Peer(hostId,{debug:1});
+  peer.on("open",()=>{
+    role="left";
+    proximityState.textContent="Este celular abrió la sesión · esperando al otro…";
+    setStatus("Celular cercano detectado");
+  });
+  peer.on("connection",incoming=>{
+    role="left";
+    if(conn?.open){incoming.close();return}
+    bindConnection(incoming);
+  });
+  peer.on("error",err=>{
+    if(err?.type==="unavailable-id"){becomeJoiner();return}
+    showError("No se pudo crear la sesión de proximidad: "+(err?.type||err?.message||"error"));
+    proximityPairing=false;
+    proximityBtn.disabled=false;
+    proximityBtn.textContent="Reintentar proximidad";
+    setStatus("Error de proximidad");
+  });
+}
+
 function startHost(){
+  stopProximityScan(true);
+  proximityPairing=false;
   if(typeof Peer==="undefined"){showError("No se pudo cargar PeerJS. Revisa la conexión a Internet.");return}
   disposePeer();showError("");roomCode=makeCode();role="left";
   roomCodeEl.textContent=roomCode;roomBox.classList.add("show");setStatus("Creando sala…");
@@ -165,6 +328,8 @@ function startHost(){
 }
 
 function joinRoom(code){
+  stopProximityScan(true);
+  proximityPairing=false;
   if(typeof Peer==="undefined"){showError("No se pudo cargar PeerJS. Revisa la conexión a Internet.");return}
   code=cleanCode(code);
   if(code.length!==6){showError("El código debe tener 6 caracteres.");return}
@@ -184,7 +349,12 @@ function joinRoom(code){
 function bindConnection(c){
   conn=c;
   conn.on("open",()=>{
-    setStatus("Sincronizados",true);setSync("P2P activo",true);enterGame();
+    proximityPairing=false;
+    stopProximityScan(true);
+    proximityState.textContent=roomCode==="AUTO"?"Emparejados automáticamente por proximidad":"Conexión manual activa";
+    proximityMeter.style.width="100%";
+    proximityIcon.textContent="✓";
+    setStatus("Sincronizados",true);setSync(roomCode==="AUTO"?"P2P · proximidad":"P2P activo",true);enterGame();
     send({type:"hello",role,width:stage.clientWidth,height:stage.clientHeight});
     if(role==="left") broadcastState(true);
   });
@@ -211,9 +381,11 @@ function enterGame(){
   setup.style.display="none";game.classList.add("show");
   stage.classList.toggle("left",role==="left");stage.classList.toggle("right",role==="right");
   roleLabel.textContent=role==="left"?"Celular A · mitad izquierda":"Celular B · mitad derecha";
-  gameRoom.textContent="Sala "+roomCode;init3D();requestAnimationFrame(resize3D);
+  gameRoom.textContent=roomCode==="AUTO"?"Emparejados por proximidad":"Sala "+roomCode;init3D();requestAnimationFrame(resize3D);
 }
 function enterDemo(){
+  stopProximityScan(true);
+  proximityPairing=false;
   demo=true;role="left";roomCode="DEMO";setStatus("Demo local",true);setSync("Local",true);
   setup.style.display="none";game.classList.add("show");stage.classList.add("left");
   roleLabel.textContent="Demo · mitad izquierda";gameRoom.textContent="Sin segundo celular";
@@ -330,6 +502,7 @@ function animate(now=performance.now()){
   renderer?.render(scene,camera);
 }
 
+proximityBtn.addEventListener("click",toggleProximityScan);
 $("createBtn").addEventListener("click",startHost);
 $("joinBtn").addEventListener("click",()=>joinRoom(roomInput.value));
 roomInput.addEventListener("input",()=>roomInput.value=cleanCode(roomInput.value));
@@ -348,6 +521,7 @@ $("shareBtn").addEventListener("click",async()=>{
   roomInput.value=roomCode;
 });
 
+addEventListener("pagehide",()=>{try{window.Love2PairProximity?.stop({silent:true})}catch{}});
 const joinParam=cleanCode(new URL(location.href).searchParams.get("join"));
 if(joinParam){roomInput.value=joinParam;setTimeout(()=>joinRoom(joinParam),250)}
 </script>
